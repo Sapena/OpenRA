@@ -24,6 +24,15 @@ namespace OpenRA.Mods.Common.Widgets
 		readonly TerrainTemplatePreviewWidget preview;
 		readonly Rectangle bounds;
 
+		readonly ushort[][] similarTilesets = new ushort[][] {
+			new ushort[] {135, 137, 138, 139, 141},
+			new ushort[] {142, 144, 145, 146, 148},
+			new ushort[] {149, 151, 152, 153, 155},
+			new ushort[] {156, 158, 159, 160, 162},
+		};
+
+		CPos previousPaintedCell;
+		ushort previousPaintedTemplate = 0;
 		bool painting;
 
 		public EditorTileBrush(EditorViewportControllerWidget editorWidget, ushort template, WorldRenderer wr)
@@ -68,7 +77,11 @@ namespace OpenRA.Mods.Common.Widgets
 				if (mi.Event == MouseInputEvent.Down)
 					painting = true;
 				else if (mi.Event == MouseInputEvent.Up)
+				{
 					painting = false;
+					previousPaintedCell = new CPos();
+					previousPaintedTemplate = 0;
+				}
 			}
 
 			if (!painting)
@@ -84,7 +97,15 @@ namespace OpenRA.Mods.Common.Widgets
 
 			var rules = map.Rules;
 			var tileset = rules.TileSets[map.Tileset];
-			var template = tileset.Templates[Template];
+			var _template = Template;
+			var similarTileset = similarTilesets.Where(t => t.Contains(_template)).FirstOrDefault();
+			if (similarTileset != null && previousPaintedTemplate != 0)
+			{
+				var first = similarTileset.First();
+				var last = similarTileset.Last();
+				_template = similarTileset.Except(new ushort[] {first, last, previousPaintedTemplate}).Random(new Support.MersenneTwister());
+			}
+			var template = tileset.Templates[_template];
 			var baseHeight = mapHeight.Contains(cell) ? mapHeight[cell] : (byte)0;
 			if (mi.Event == MouseInputEvent.Move && PlacementOverlapsSameTemplate(template, cell))
 				return true;
@@ -101,11 +122,13 @@ namespace OpenRA.Mods.Common.Widgets
 						if (!mapTiles.Contains(c))
 							continue;
 
-						mapTiles[c] = new TerrainTile(Template, index);
+						mapTiles[c] = new TerrainTile(_template, index);
 						mapHeight[c] = (byte)(baseHeight + template[index].Height).Clamp(0, map.Grid.MaximumTerrainHeight);
 					}
 				}
 			}
+			previousPaintedCell = cell;
+			previousPaintedTemplate = _template;
 
 			return true;
 		}
@@ -122,8 +145,14 @@ namespace OpenRA.Mods.Common.Widgets
 					if (template.Contains(i) && template[i] != null)
 					{
 						var c = cell + new CVec(x, y);
-						if (mapTiles.Contains(c) && mapTiles[c].Type == template.Id)
-							return true;
+
+						if (mapTiles.Contains(c))
+						{
+							var otherTemplate = mapTiles[c].Type;
+							var similarTileset = similarTilesets.Where(t => t.Contains(template.Id)).FirstOrDefault();
+							if (otherTemplate == template.Id || (similarTileset != null && similarTileset.Contains(otherTemplate)))
+								return true;
+						}
 					}
 				}
 			}
