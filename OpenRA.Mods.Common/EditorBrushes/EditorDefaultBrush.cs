@@ -33,6 +33,7 @@ namespace OpenRA.Mods.Common.Widgets
 		readonly EditorActorLayer editorLayer;
 		readonly Dictionary<int, ResourceType> resources;
 		int2 worldPixel;
+		bool painting;
 
 		public EditorDefaultBrush(EditorViewportControllerWidget editorWidget, WorldRenderer wr)
 		{
@@ -59,6 +60,12 @@ namespace OpenRA.Mods.Common.Widgets
 
 		public bool HandleMouseInput(MouseInput mi)
 		{
+			if (mi.Event == MouseInputEvent.Down)
+				painting = true;
+
+			if (mi.Event == MouseInputEvent.Up)
+				painting = false;
+
 			// Exclusively uses mouse wheel and right mouse buttons, but nothing else
 			// Mouse move events are important for tooltips, so we always allow these through
 			if ((mi.Button != MouseButton.Right && mi.Event != MouseInputEvent.Move && mi.Event != MouseInputEvent.Scroll) ||
@@ -81,7 +88,8 @@ namespace OpenRA.Mods.Common.Widgets
 
 			// Finished with mouse move events, so let them bubble up the widget tree
 			if (mi.Event == MouseInputEvent.Move)
-				return false;
+				if (!painting || mi.Button == MouseButton.Middle)
+					return false;
 
 			if (mi.Button == MouseButton.Right)
 			{
@@ -93,7 +101,7 @@ namespace OpenRA.Mods.Common.Widgets
 				if (mapResources.Contains(cell) && mapResources[cell].Type != 0)
 					mapResources[cell] = new ResourceTile();
 			}
-			else if (mi.Event == MouseInputEvent.Scroll)
+			else if (mi.Event != MouseInputEvent.Move && mi.Event == MouseInputEvent.Scroll)
 			{
 				if (underCursor != null)
 				{

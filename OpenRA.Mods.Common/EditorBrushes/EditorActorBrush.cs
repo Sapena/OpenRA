@@ -31,6 +31,14 @@ namespace OpenRA.Mods.Common.Widgets
 		readonly CVec[] footprint;
 
 		int facing = 92;
+		bool painting;
+		int2 worldPixel;
+
+		string[][] similarActors = new string[][] {
+			new string[] {"t01", "t02", "t05", "t06", "t07", "t08", "tc01, tc03", "tc04"},
+			new string[] {"t10", "t11", "t12", "t13", "t14", "t15"},
+			new string[] {"boxes01", "boxes02", "boxes03", "boxes04", "boxes05", "boxes06", "boxes07", "boxes08", "boxes09"}
+		};
 
 		public EditorActorBrush(EditorViewportControllerWidget editorWidget, ActorInfo actor, PlayerReference owner, WorldRenderer wr)
 		{
@@ -73,6 +81,18 @@ namespace OpenRA.Mods.Common.Widgets
 			Tick();
 		}
 
+		long CalculateActorSelectionPriority(EditorActorPreview actor)
+		{
+			var centerPixel = new int2(actor.Bounds.X, actor.Bounds.Y);
+			var pixelDistance = (centerPixel - worldPixel).Length;
+
+			// If 2+ actors have the same pixel position, then the highest appears on top.
+			var worldZPosition = actor.CenterPosition.Z;
+
+			// Sort by pixel distance then in world z position.
+			return ((long)pixelDistance << 32) + worldZPosition;
+		}
+
 		public bool HandleMouseInput(MouseInput mi)
 		{
 			// Exclusively uses left and right mouse buttons, but nothing else
@@ -91,19 +111,44 @@ namespace OpenRA.Mods.Common.Widgets
 			}
 
 			var cell = worldRenderer.Viewport.ViewToWorld(mi.Location);
-			if (mi.Button == MouseButton.Left && mi.Event == MouseInputEvent.Down)
+			if (mi.Button == MouseButton.Left)
 			{
+				if (mi.Event == MouseInputEvent.Down)
+					painting = true;
+
+				if (mi.Event == MouseInputEvent.Up)
+					painting = false;
+
+				if (mi.Event == MouseInputEvent.Move && !painting)
+					return true;
+
 				// Check the actor is inside the map
 				if (!footprint.All(c => world.Map.MapTiles.Value.Contains(cell + locationOffset + c)))
 					return true;
 
-				var newActorReference = new ActorReference(Actor.Name);
+				var actor = Actor;
+				if (mi.Event == MouseInputEvent.Move)
+				{
+					worldPixel = worldRenderer.Viewport.ViewToWorldPx(mi.Location);
+					var underCursor = editorLayer.PreviewsAt(worldPixel).MinByOrDefault(CalculateActorSelectionPriority);
+
+					if (underCursor != null)
+						return true;
+
+					var similarActor = similarActors.Where(a => a.Contains(Actor.Name)).FirstOrDefault();
+					if (similarActor != null)
+					{
+						var actors = world.Map.Rules.Actors.Where(a => !a.Value.Name.Contains('^') && similarActor.Contains(a.Value.Name)).Select(a => a.Value);
+						actor = actors.Except(new ActorInfo[] { actor }).Random(new Support.MersenneTwister());
+					}
+				}
+				var newActorReference = new ActorReference(actor.Name);
 				newActorReference.Add(new OwnerInit(owner.Name));
 
 				cell += locationOffset;
 				newActorReference.Add(new LocationInit(cell));
 
-				var ios = Actor.TraitInfoOrDefault<IOccupySpaceInfo>();
+				var ios = actor.TraitInfoOrDefault<IOccupySpaceInfo>();
 				if (ios != null && ios.SharesCell)
 				{
 					var subcell = editorLayer.FreeSubCellAt(cell);
@@ -113,10 +158,10 @@ namespace OpenRA.Mods.Common.Widgets
 
 				var initDict = newActorReference.InitDict;
 
-				if (Actor.HasTraitInfo<IFacingInfo>())
+				if (actor.HasTraitInfo<IFacingInfo>())
 					initDict.Add(new FacingInit(facing));
 
-				if (Actor.HasTraitInfo<TurretedInfo>())
+				if (actor.HasTraitInfo<TurretedInfo>())
 					initDict.Add(new TurretFacingInit(facing));
 
 				editorLayer.Add(newActorReference);
